@@ -7,14 +7,16 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-22.04-4core
 
     env:
       # LLVM=1: Makefile:391-399 picks clang/ld.lld/llvm-* instead of $(CROSS_COMPILE)gcc
       # CROSS_COMPILE drives CLANG_TRIPLE + --gcc-toolchain (Makefile:521-534)
       MAKE_ARGS: O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu-
-      # Giu -j2: an toan cho RAM cua runner 2-core, cham khi bao LTO.
-      MAKE_JOBS: 2
+      # Runner ubuntu-22.04-4core = 4 core / 16 GB.
+      # -j$(nproc) se ra 4 job, dung het core cua runner.
+      # Runner cu 2 core (ubuntu-22.04) thi $(nproc)=2 → build cham hon ~2 lan.
+      MAKE_JOBS: 4
 
     steps:
       - uses: actions/checkout@v4
