@@ -33,6 +33,14 @@ jobs:
           export PATH=/usr/lib/llvm-11/bin:$PATH
           clang --version | head -1
           make -j"$(nproc)" $MAKE_ARGS vayu_defconfig
+          # Merge yomi16.config (bo sung DroidSpaces) VAO SAU defconfig.
+          # -m = chi merge, khong chay make; -O out = thu muc output.
+          # Phai merge sau defconfig vi make <target>_defconfig tao lai .config
+          # tu defconfig va se xoa het thay doi khong nam trong defconfig.
+          scripts/kconfig/merge_config.sh -m -O out out/.config \
+            arch/arm64/configs/yomi16.config
+          # olddefconfig (khong phai alldefconfig) de giu nguyen config da chon
+          make -j"$(nproc)" $MAKE_ARGS olddefconfig
           make -j"$(nproc)" $MAKE_ARGS Image.gz-dtb
 
       - uses: actions/upload-artifact@v4
