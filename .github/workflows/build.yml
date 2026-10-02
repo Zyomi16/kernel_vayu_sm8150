@@ -1,0 +1,44 @@
+name: build
+
+on:
+  push:
+    branches: [main, build/ci-fix]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    env:
+      # LLVM=1: Makefile:371-399 picks clang/ld.lld/llvm-* instead of $(CROSS_COMPILE)gcc
+      # CROSS_COMPILE drives CLANG_TRIPLE + --gcc-toolchain (Makefile:521-534)
+      MAKE_ARGS: O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu-
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/.ghcup
+          df -h /
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-11 lld-11 llvm-11 gcc-11-aarch64-linux-gnu bc bison flex zstd liblz4-tool
+          sudo ln -sf /usr/bin/elfedit /usr/bin/aarch64-linux-gnu-elfedit
+
+      - name: Build Image.gz-dtb
+        run: |
+          export PATH=/usr/lib/llvm-11/bin:$PATH
+          clang --version | head -1
+          make -j"$(nproc)" $MAKE_ARGS vayu_defconfig
+          make -j"$(nproc)" $MAKE_ARGS Image.gz-dtb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yomi16-out
+          path: |
+            out/arch/arm64/boot/Image.gz-dtb
+            out/.config
+            out/System.map
