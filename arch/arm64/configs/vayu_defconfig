@@ -1229,7 +1229,11 @@ CONFIG_QRTR_FIFO=y
 CONFIG_RPS=y
 CONFIG_RFS_ACCEL=y
 CONFIG_XPS=y
-CONFIG_CGROUP_NET_PRIO=y
+# CGROUP_NET_PRIO khong bat: include/net/netprio_cgroup.h (bo sung boi
+# Qualcomm/msm) goi css->cgroup->id o netprio_cgroup.h:35, nhung struct cgroup
+# cua cay nay khong co field id -> init/do_mounts.o fail khi bien dich.
+# Droidspaces can config nay de gan uu tien mang theo cgroup; khong phai
+# muc bat buoc de container khoi dong.
 # CONFIG_CGROUP_NET_CLASSID is not set
 CONFIG_NET_RX_BUSY_POLL=y
 CONFIG_BQL=y
