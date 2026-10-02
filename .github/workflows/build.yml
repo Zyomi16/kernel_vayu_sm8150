@@ -38,6 +38,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: yomi16-out
+          # upload-artifact@v4 bo qua file dot (mac dinh include-hidden-files=false),
+          # nen out/.config se bi bo qua neu khong bat co.
+          include-hidden-files: true
           path: |
             out/arch/arm64/boot/Image.gz-dtb
             out/.config
