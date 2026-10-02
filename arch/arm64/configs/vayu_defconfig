@@ -6295,3 +6295,10 @@ CONFIG_RMNET_SHS=m
 CONFIG_ANDROID_SIMPLE_LMK=y
 CONFIG_ANDROID_SIMPLE_LMK_MINFREE=128
 CONFIG_ANDROID_SIMPLE_LMK_TIMEOUT_MSEC=200
+
+# ReSukiSU (vendored) — manual hooks, no CONFIG_KPROBES needed (non-GKI 4.14).
+# NOTE: CONFIG_KSU_SUSFS is mutually exclusive with KSU_MANUAL_HOOK (same choice in
+# drivers/kernelsu/Kconfig). Leaving it off means fs/susfs.o is NOT built
+# (fs/Makefile:17), so the SUSFS code already in this tree stays unused.
+CONFIG_KSU=y
+CONFIG_KSU_MANUAL_HOOK=y
