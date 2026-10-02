@@ -166,8 +166,12 @@ CONFIG_SOCK_CGROUP_DATA=y
 CONFIG_SCHED_CORE_CTL=y
 CONFIG_NAMESPACES=y
 CONFIG_UTS_NS=y
-# CONFIG_USER_NS is not set
-# CONFIG_PID_NS is not set
+# Namespaces for LXC-style containers (Droidspaces). USER_NS was explicitly
+# disabled upstream in this defconfig; re-enabling it lets unprivileged apps
+# create a user namespace and map their uid to 0, which weakens Android's
+# uid-based sandbox. Accepted trade-off to run Droidspaces.
+CONFIG_USER_NS=y
+CONFIG_PID_NS=y
 CONFIG_NET_NS=y
 # CONFIG_SCHED_AUTOGROUP is not set
 CONFIG_SCHED_TUNE=y
