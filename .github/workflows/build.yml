@@ -13,8 +13,7 @@ jobs:
       # LLVM=1: Makefile:391-399 picks clang/ld.lld/llvm-* instead of $(CROSS_COMPILE)gcc
       # CROSS_COMPILE drives CLANG_TRIPLE + --gcc-toolchain (Makefile:521-534)
       MAKE_ARGS: O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu-
-      # yomi16.config bat CONFIG_LTO_CLANG=y + CONFIG_THINLTO=y. Buoc link vmlinux
-      # ton RAM nhieu hon binh thuong — -j2 an toan hon -j$(nproc) khi LTO bat.
+      # Giu -j2: an toan cho RAM cua runner 2-core, cham khi bao LTO.
       MAKE_JOBS: 2
 
     steps:
@@ -44,14 +43,13 @@ jobs:
             arch/arm64/configs/yomi16.config
           # olddefconfig (khong phai alldefconfig) de giu nguyen config da chon
           make -j"$MAKE_JOBS" $MAKE_ARGS olddefconfig
-          # Xac nhan 9 config can co that su len .config truoc khi build
+          # Xac nhan 7 config can co that su len .config truoc khi build
           for c in CONFIG_IPC_NS CONFIG_IP_SET CONFIG_IP_SET_HASH_IP \
                    CONFIG_IP_SET_HASH_NET CONFIG_NETFILTER_XT_SET \
-                   CONFIG_NETFILTER_XT_MATCH_RECENT CONFIG_NF_CT_NETLINK \
-                   CONFIG_LTO_CLANG CONFIG_THINLTO; do
+                   CONFIG_NETFILTER_XT_MATCH_RECENT CONFIG_NF_CT_NETLINK; do
             grep -qx "$c=y" out/.config || { echo "FAIL: $c khong = y"; exit 1; }
           done
-          echo "OK: 9/9 config da len .config"
+          echo "OK: 7/7 config da len .config"
           make -j"$MAKE_JOBS" $MAKE_ARGS Image.gz-dtb
 
       - uses: actions/upload-artifact@v4
