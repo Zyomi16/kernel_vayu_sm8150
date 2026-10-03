@@ -13,13 +13,12 @@ on:
           - none
           - resukisu
           - sukisu
-          - kittisu
       susfs:
-        description: 'Bat SUSFS? (resukisu, kittisu)'
+        description: 'Bat SUSFS? (chi co tac dung voi resukisu)'
         type: boolean
         default: false
       kpm:
-        description: 'Bat KPM? (chi sukisu)'
+        description: 'Bat KPM? (chi co tac dung voi sukisu)'
         type: boolean
         default: false
 
@@ -63,47 +62,40 @@ jobs:
           SUSFS="${OPT_SUSFS:-false}"
           KPM="${OPT_KPM:-false}"
           echo ">>> root=$ROOT susfs=$SUSFS kpm=$KPM"
-          # SWAPDIR: thu muc driver thay the drivers/kernelsu.
-          # ReSukiSU va KittiSU dung chung ten symbol (KSU_MANUAL_HOOK,
-          # KSU_SUSFS, KSU_MULTI_MANAGER_SUPPORT) nen dung chung fragment.
-          SWAPDIR=""
           case "$ROOT" in
-            none)      FRAGMENT=none.config; VARIANT=none ;;
+            none)      FRAGMENT=none.config; SWAP=0 ;;
             resukisu)
-              if [ "$SUSFS" = "true" ]; then FRAGMENT=resukisu-susfs.config; VARIANT=resukisu-susfs;
-              else FRAGMENT=resukisu.config; VARIANT=resukisu; fi
-              # KPM la cua SukiSU-Ultra (ReSukiSU/KittiSU khong co symbol KPM
-              # that — KittiSU chi co stub deprecated).
+              if [ "$SUSFS" = "true" ]; then FRAGMENT=resukisu-susfs.config;
+              else FRAGMENT=resukisu.config; fi
+              SWAP=0
+              # KPM la cua SukiSU-Ultra, ReSukiSU khong co symbol KPM.
               if [ "$KPM" = "true" ]; then
                 echo "FAIL: kpm=true chi dung voi root=sukisu"; exit 1; fi ;;
             sukisu)
-              if [ "$KPM" = "true" ]; then FRAGMENT=sukisu-kpm.config; VARIANT=sukisu-kpm;
-              else FRAGMENT=sukisu.config; VARIANT=sukisu; fi
-              SWAPDIR="drivers/kernelsu-sukisu"
+              if [ "$KPM" = "true" ]; then FRAGMENT=sukisu-kpm.config;
+              else FRAGMENT=sukisu.config; fi
+              SWAP=1
               # SukiSU Kconfig khong co KSU_SUSFS.
               if [ "$SUSFS" = "true" ]; then
-                echo "FAIL: susfs=true chi dung voi root=resukisu,kittisu"; exit 1; fi ;;
-            kittisu)
-              if [ "$SUSFS" = "true" ]; then FRAGMENT=resukisu-susfs.config; VARIANT=kittisu-susfs;
-              else FRAGMENT=resukisu.config; VARIANT=kittisu; fi
-              SWAPDIR="drivers/kernelsu-kittisu"
-              if [ "$KPM" = "true" ]; then
-                echo "FAIL: kpm=true chi dung voi root=sukisu"; exit 1; fi ;;
+                echo "FAIL: susfs=true chi dung voi root=resukisu"; exit 1; fi ;;
             *) echo "FAIL: root khong hop le: $ROOT"; exit 1 ;;
           esac
-          echo ">>> fragment=$FRAGMENT swapdir=$SWAPDIR variant=$VARIANT"
+          VARIANT="${FRAGMENT%.config}"
+          echo ">>> fragment=$FRAGMENT swap=$SWAP variant=$VARIANT"
           echo "FRAGMENT=$FRAGMENT" >> "$GITHUB_ENV"
           echo "VARIANT=$VARIANT" >> "$GITHUB_ENV"
-          echo "SWAPDIR=$SWAPDIR" >> "$GITHUB_ENV"
+          echo "SWAP=$SWAP" >> "$GITHUB_ENV"
 
       - name: Swap root driver
-        if: env.SWAPDIR != ''
+        if: env.SWAP == '1'
         run: |
+          # SukiSU-Ultra khac ReSukiSU ca ve Kconfig: 7 symbol vs 24,
+          # khong co KSU_MULTI_MANAGER_SUPPORT, khong co KSU_SUSFS.
           # drivers/Makefile:198 la `obj-$(CONFIG_KSU) += kernelsu/` nen
           # thay noi dung thu muc la doi duoc driver.
-          echo ">>> swapping ReSukiSU -> $SWAPDIR"
+          echo ">>> swapping ReSukiSU -> SukiSU-Ultra"
           rm -rf drivers/kernelsu
-          cp -r "$SWAPDIR" drivers/kernelsu
+          cp -r drivers/kernelsu-sukisu drivers/kernelsu
           echo "symbol co trong driver moi:"
           grep -hoE '^config [A-Z_0-9]+' drivers/kernelsu/Kconfig | sort -u | sed 's/^/  /'
 
