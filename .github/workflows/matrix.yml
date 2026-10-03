@@ -1,0 +1,267 @@
+name: matrix
+
+on:
+  push:
+    branches: [ci/vayu-matrix]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - name: none-lto-o2
+            frag: none.config
+            extra: ""
+            swap: ""
+            lto: on
+            opt: o2
+          - name: none-nolto-o2
+            frag: none.config
+            extra: "m/lto-off.config"
+            swap: ""
+            lto: off
+            opt: o2
+          - name: none-lto-os
+            frag: none.config
+            extra: "m/opt-size.config"
+            swap: ""
+            lto: on
+            opt: os
+          - name: none-nolto-os
+            frag: none.config
+            extra: "m/lto-off.config m/opt-size.config"
+            swap: ""
+            lto: off
+            opt: os
+          - name: resukisu-lto-o2
+            frag: resukisu.config
+            extra: ""
+            swap: ""
+            lto: on
+            opt: o2
+          - name: resukisu-nolto-o2
+            frag: resukisu.config
+            extra: "m/lto-off.config"
+            swap: ""
+            lto: off
+            opt: o2
+          - name: resukisu-lto-os
+            frag: resukisu.config
+            extra: "m/opt-size.config"
+            swap: ""
+            lto: on
+            opt: os
+          - name: resukisu-nolto-os
+            frag: resukisu.config
+            extra: "m/lto-off.config m/opt-size.config"
+            swap: ""
+            lto: off
+            opt: os
+          - name: resukisu-susfs-lto-o2
+            frag: resukisu-susfs.config
+            extra: ""
+            swap: ""
+            lto: on
+            opt: o2
+          - name: resukisu-susfs-nolto-o2
+            frag: resukisu-susfs.config
+            extra: "m/lto-off.config"
+            swap: ""
+            lto: off
+            opt: o2
+          - name: resukisu-susfs-lto-os
+            frag: resukisu-susfs.config
+            extra: "m/opt-size.config"
+            swap: ""
+            lto: on
+            opt: os
+          - name: resukisu-susfs-nolto-os
+            frag: resukisu-susfs.config
+            extra: "m/lto-off.config m/opt-size.config"
+            swap: ""
+            lto: off
+            opt: os
+          - name: sukisu-lto-o2
+            frag: sukisu-ultra.config
+            extra: ""
+            swap: "drivers/kernelsu-sukisu"
+            lto: on
+            opt: o2
+          - name: sukisu-nolto-o2
+            frag: sukisu-ultra.config
+            extra: "m/lto-off.config"
+            swap: "drivers/kernelsu-sukisu"
+            lto: off
+            opt: o2
+          - name: sukisu-lto-os
+            frag: sukisu-ultra.config
+            extra: "m/opt-size.config"
+            swap: "drivers/kernelsu-sukisu"
+            lto: on
+            opt: os
+          - name: sukisu-nolto-os
+            frag: sukisu-ultra.config
+            extra: "m/lto-off.config m/opt-size.config"
+            swap: "drivers/kernelsu-sukisu"
+            lto: off
+            opt: os
+          - name: sukisu-kpm-lto-o2
+            frag: sukisu-ultra-kpm.config
+            extra: ""
+            swap: "drivers/kernelsu-sukisu"
+            lto: on
+            opt: o2
+          - name: sukisu-kpm-nolto-o2
+            frag: sukisu-ultra-kpm.config
+            extra: "m/lto-off.config"
+            swap: "drivers/kernelsu-sukisu"
+            lto: off
+            opt: o2
+          - name: sukisu-kpm-lto-os
+            frag: sukisu-ultra-kpm.config
+            extra: "m/opt-size.config"
+            swap: "drivers/kernelsu-sukisu"
+            lto: on
+            opt: os
+          - name: sukisu-kpm-nolto-os
+            frag: sukisu-ultra-kpm.config
+            extra: "m/lto-off.config m/opt-size.config"
+            swap: "drivers/kernelsu-sukisu"
+            lto: off
+            opt: os
+
+    env:
+      # LLVM=1: Makefile:391-399 picks clang/ld.lld/llvm-* instead of $(CROSS_COMPILE)gcc
+      MAKE_ARGS: O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu-
+      MAKE_JOBS: 2
+      # ld-name=lld: giu LD = ld.lld khi LTO bat (Makefile:707).
+      # Xac minh bang probe run 37084024479.
+      EXTRA_MAKE_ARGS: ld-name=lld
+      M_NAME: ${{ matrix.name }}
+      M_FRAG: ${{ matrix.frag }}
+      M_EXTRA: ${{ matrix.extra }}
+      M_SWAP: ${{ matrix.swap }}
+      M_LTO: ${{ matrix.lto }}
+      M_OPT: ${{ matrix.opt }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Swap root driver
+        if: matrix.swap != ''
+        run: |
+          echo ">>> swapping -> ${{ matrix.swap }}"
+          rm -rf drivers/kernelsu
+          cp -r "${{ matrix.swap }}" drivers/kernelsu
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/.ghcup
+          df -h /
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-11 lld-11 llvm-11 gcc-11-aarch64-linux-gnu \
+            bc bison flex libssl-dev libelf-dev pahole libncurses-dev \
+            zstd lz4 dtc cpio zip
+          sudo ln -sf /usr/bin/elfedit /usr/bin/aarch64-linux-gnu-elfedit
+
+      - name: Build Image.gz-dtb
+        run: |
+          export PATH=/usr/lib/llvm-11/bin:$PATH
+          clang --version | head -1
+          make -j"$MAKE_JOBS" $MAKE_ARGS vayu_defconfig
+          # Merge: defconfig -> yomi16.config -> root fragment -> matrix extra.
+          # -m = chi merge; olddefconfig giu nguyen lua chon.
+          # shellcheck disable=SC2086
+          scripts/kconfig/merge_config.sh -m -O out out/.config \
+            arch/arm64/configs/yomi16.config \
+            "arch/arm64/configs/root/$M_FRAG" $M_EXTRA
+          make -j"$MAKE_JOBS" $MAKE_ARGS olddefconfig
+          cfg_y() { grep -qx "$1=y" out/.config; }
+          cfg_n() { grep -qx "$1=n" out/.config \
+            || grep -qx "# $1 is not set" out/.config; }
+          # Config chung (DroidSpaces + KPROBES, khong thuoc nhom cam).
+          for c in CONFIG_IPC_NS CONFIG_IP_SET CONFIG_IP_SET_HASH_IP \
+                   CONFIG_IP_SET_HASH_NET CONFIG_NETFILTER_XT_SET \
+                   CONFIG_NETFILTER_XT_MATCH_RECENT CONFIG_NF_CT_NETLINK \
+                   CONFIG_KPROBES; do
+            cfg_y "$c" || { echo "FAIL: $c khong = y"; exit 1; }
+          done
+          # LTO theo ma tran.
+          if [ "$M_LTO" = "on" ]; then
+            cfg_y CONFIG_LTO_CLANG || { echo "FAIL: LTO_CLANG"; exit 1; }
+            cfg_y CONFIG_THINLTO || { echo "FAIL: THINLTO"; exit 1; }
+          else
+            cfg_y CONFIG_LTO_NONE || { echo "FAIL: LTO_NONE"; exit 1; }
+            cfg_n CONFIG_LTO_CLANG || { echo "FAIL: LTO_CLANG phai tat"; exit 1; }
+          fi
+          # OPT theo ma tran.
+          if [ "$M_OPT" = "os" ]; then
+            cfg_y CONFIG_CC_OPTIMIZE_FOR_SIZE \
+              || { echo "FAIL: OPT_SIZE"; exit 1; }
+          fi
+          # Root theo fragment.
+          case "$M_FRAG" in
+            none.config)
+              cfg_n CONFIG_KSU || { echo "FAIL: none"; exit 1; } ;;
+            resukisu.config)
+              cfg_y CONFIG_KSU_MANUAL_HOOK || { echo "FAIL: hook"; exit 1; }
+              cfg_y CONFIG_KSU_MULTI_MANAGER_SUPPORT \
+                || { echo "FAIL: mm"; exit 1; } ;;
+            resukisu-susfs.config)
+              cfg_y CONFIG_KSU_SUSFS || { echo "FAIL: susfs"; exit 1; }
+              cfg_y CONFIG_KSU_MULTI_MANAGER_SUPPORT \
+                || { echo "FAIL: mm"; exit 1; } ;;
+            sukisu-ultra.config)
+              cfg_y CONFIG_KSU_MANUAL_SU || { echo "FAIL: su"; exit 1; }
+              cfg_n CONFIG_KPM || { echo "FAIL: kpm"; exit 1; } ;;
+            sukisu-ultra-kpm.config)
+              cfg_y CONFIG_KSU_MANUAL_SU || { echo "FAIL: su"; exit 1; }
+              cfg_y CONFIG_KPM || { echo "FAIL: KPM"; exit 1; } ;;
+          esac
+          echo "OK: $M_NAME config hop le"
+          make -j"$MAKE_JOBS" $MAKE_ARGS $EXTRA_MAKE_ARGS Image.gz-dtb
+
+      - name: Package flashable zip
+        run: |
+          set -e
+          AK=anykernel
+          python3 scripts/dtc/libfdt/mkdtboimg.py create "$AK/dtbo.img" \
+            --page_size=4096 out/arch/arm64/boot/dts/qcom/*.dtbo
+          cp out/arch/arm64/boot/dts/qcom/sm8150-v2-xiaomi.dtb "$AK/dtb"
+          cp out/arch/arm64/boot/Image "$AK/Image"
+          test -s "$AK/Image" || { echo "FAIL: Image rong"; exit 1; }
+          test -s "$AK/dtbo.img" || { echo "FAIL: dtbo.img rong"; exit 1; }
+          printf '#Yomi16-%s\n' "$M_NAME" > "$AK/banner"
+          printf 'Yomi16 (%s) for POCO F5 (vayu)\nKernel: 4.14.357+17-Yomi16\n' \
+            "$M_NAME" > "$AK/README.md"
+          ZIP="Yomi16_${M_NAME}_vayu_$(date -u +%Y%m%d).zip"
+          (cd "$AK" && zip -r9 "../$ZIP" . -x '.*')
+          ls -la "$ZIP"
+          echo "DONE: $ZIP"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Yomi16-${{ matrix.name }}
+          path: Yomi16_*.zip
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yomi16-out-${{ matrix.name }}
+          include-hidden-files: true
+          path: |
+            out/arch/arm64/boot/Image.gz-dtb
+            out/arch/arm64/boot/Image
+            out/arch/arm64/boot/dts/qcom/*.dtb
+            out/arch/arm64/boot/dts/qcom/*.dtbo
+            out/.config
+            out/System.map
