@@ -168,9 +168,14 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
+          # dtc/pahole KHONG cai: dtc khong co trong apt ubuntu-22.04
+          # (run 37108943823: "E: Unable to locate package dtc"), kernel tu
+          # build scripts/dtc/dtc tu source. pahole chi can cho BTF ma 4.14
+          # khong co. Gi lai libssl/libelf/ncurses (main repo, can cho
+          # sign-file/nconfig) + lz4/cpio/zip.
           sudo apt-get install -y clang-11 lld-11 llvm-11 gcc-11-aarch64-linux-gnu \
-            bc bison flex libssl-dev libelf-dev pahole libncurses-dev \
-            zstd lz4 dtc cpio zip
+            bc bison flex libssl-dev libelf-dev libncurses-dev \
+            zstd lz4 cpio zip
           sudo ln -sf /usr/bin/elfedit /usr/bin/aarch64-linux-gnu-elfedit
 
       - name: Build Image.gz-dtb
