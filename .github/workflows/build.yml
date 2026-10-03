@@ -2,20 +2,102 @@ name: build
 
 on:
   push:
-    branches: [main, build/ci-fix]
+    branches: [main, config/yomi16]
   workflow_dispatch:
+    inputs:
+      root:
+        description: 'Root solution (mac dinh: resukisu)'
+        type: choice
+        default: resukisu
+        options:
+          - none
+          - resukisu
+          - sukisu-ultra
+      susfs:
+        description: 'Bat SUSFS? (chi co tac dung voi resukisu)'
+        type: boolean
+        default: false
+      kpm:
+        description: 'Bat KPM? (chi co tac dung voi sukisu-ultra)'
+        type: boolean
+        default: false
 
 jobs:
   build:
     runs-on: ubuntu-22.04
 
     env:
-      # LLVM=1: Makefile:371-399 picks clang/ld.lld/llvm-* instead of $(CROSS_COMPILE)gcc
+      # LLVM=1: Makefile:391-399 picks clang/ld.lld/llvm-* instead of $(CROSS_COMPILE)gcc
       # CROSS_COMPILE drives CLANG_TRIPLE + --gcc-toolchain (Makefile:521-534)
       MAKE_ARGS: O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu-
+      # Runner ubuntu-22.04 = 2 core / 7 GB → $(nproc) ra 2.
+      # KHONG dung "ubuntu-22.04-4core": label do khong ton tai trong tai khoan
+      # nay, job se treo vo han cho runner khop label (run 37077911639 queued
+      # >30 phut, runner_id=0). Muon nhieu core thi phai mua larger runner.
+      MAKE_JOBS: 2
+      # ld-name=lld: Makefile:707 kiem tra `ifneq ($(ld-name),lld)` de BO QUA
+      # vie gan LD := $(LDGOLD). Cay nay khong gan ld-name o dau (grep: 0 cho),
+      # nen ifneq luon dung → LD := $(LDGOLD). Ma voi LLVM=1 thi LDGOLD
+      # RONG (Makefile:391-399 khong dinh nghia LDGOLD) → LD rong, rồi
+      # arch/arm64/Makefile:103 cong them -EL → lenh link bi "-EL -plugin ...".
+      # ld-name=lld lam cho nhanh ifneq that, giu LD = ld.lld.
+      # Xac nhan bang run 37084024479 (probe in ra LD rong).
+      EXTRA_MAKE_ARGS: ld-name=lld
+      # 3 tuy chon build do user chon o Run workflow. Khi push (khong co
+      # inputs) thi inputs.* = rong → lay mac dinh: resukisu, khong SUSFS,
+      # khong KPM. Dung dang ${{ }} truc tiep o env vi gia tri chi la
+      # chuoi don gian, khong can qua job trung gian.
+      OPT_ROOT: ${{ inputs.root }}
+      OPT_SUSFS: ${{ inputs.susfs }}
+      OPT_KPM: ${{ inputs.kpm }}
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve options
+        run: |
+          # Chuyen 3 tuy chon rieng (root/susfs/kpm) thanh FRAGMENT + VARIANT.
+          # Push (khong inputs) → mac dinh: resukisu, khong SUSFS, khong KPM.
+          ROOT="${OPT_ROOT:-resukisu}"
+          SUSFS="${OPT_SUSFS:-false}"
+          KPM="${OPT_KPM:-false}"
+          echo ">>> root=$ROOT susfs=$SUSFS kpm=$KPM"
+          case "$ROOT" in
+            none)      FRAGMENT=none.config; SWAP=0 ;;
+            resukisu)
+              if [ "$SUSFS" = "true" ]; then FRAGMENT=resukisu-susfs.config;
+              else FRAGMENT=resukisu.config; fi
+              SWAP=0
+              # KPM la cua SukiSU-Ultra, ReSukiSU khong co symbol KPM.
+              if [ "$KPM" = "true" ]; then
+                echo "FAIL: kpm=true chi dung voi root=sukisu-ultra"; exit 1; fi ;;
+            sukisu-ultra)
+              if [ "$KPM" = "true" ]; then FRAGMENT=sukisu-ultra-kpm.config;
+              else FRAGMENT=sukisu-ultra.config; fi
+              SWAP=1
+              # SukiSU Kconfig khong co KSU_SUSFS.
+              if [ "$SUSFS" = "true" ]; then
+                echo "FAIL: susfs=true chi dung voi root=resukisu"; exit 1; fi ;;
+            *) echo "FAIL: root khong hop le: $ROOT"; exit 1 ;;
+          esac
+          VARIANT="${FRAGMENT%.config}"
+          echo ">>> fragment=$FRAGMENT swap=$SWAP variant=$VARIANT"
+          echo "FRAGMENT=$FRAGMENT" >> "$GITHUB_ENV"
+          echo "VARIANT=$VARIANT" >> "$GITHUB_ENV"
+          echo "SWAP=$SWAP" >> "$GITHUB_ENV"
+
+      - name: Swap root driver
+        if: env.SWAP == '1'
+        run: |
+          # SukiSU-Ultra khac ReSukiSU ca ve Kconfig: 7 symbol vs 24,
+          # khong co KSU_MULTI_MANAGER_SUPPORT, khong co KSU_SUSFS.
+          # drivers/Makefile:198 la `obj-$(CONFIG_KSU) += kernelsu/` nen
+          # thay noi dung thu muc la doi duoc driver.
+          echo ">>> swapping ReSukiSU -> SukiSU-Ultra"
+          rm -rf drivers/kernelsu
+          cp -r drivers/kernelsu-sukisu drivers/kernelsu
+          echo "symbol co trong driver moi:"
+          grep -hoE '^config [A-Z_0-9]+' drivers/kernelsu/Kconfig | sort -u | sed 's/^/  /'
 
       - name: Free disk space
         run: |
@@ -25,19 +107,109 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-11 lld-11 llvm-11 gcc-11-aarch64-linux-gnu bc bison flex zstd liblz4-tool
+          sudo apt-get install -y clang-11 lld-11 llvm-11 gcc-11-aarch64-linux-gnu bc bison flex zstd liblz4-tool zip
           sudo ln -sf /usr/bin/elfedit /usr/bin/aarch64-linux-gnu-elfedit
 
       - name: Build Image.gz-dtb
         run: |
           export PATH=/usr/lib/llvm-11/bin:$PATH
           clang --version | head -1
-          make -j"$(nproc)" $MAKE_ARGS vayu_defconfig
-          make -j"$(nproc)" $MAKE_ARGS Image.gz-dtb
+          make -j"$MAKE_JOBS" $MAKE_ARGS vayu_defconfig
+          # Merge yomi16.config + root/$VARIANT.config VAO SAU defconfig.
+          # -m = chi merge, khong chay make; -O out = thu muc output.
+          # Phai merge sau defconfig vi make <target>_defconfig tao lai .config
+          # tu defconfig va se xoa het thay doi khong nam trong defconfig.
+          scripts/kconfig/merge_config.sh -m -O out out/.config \
+            arch/arm64/configs/yomi16.config \
+            "arch/arm64/configs/root/$FRAGMENT"
+          # olddefconfig (khong phai alldefconfig) de giu nguyen config da chon
+          make -j"$MAKE_JOBS" $MAKE_ARGS olddefconfig
+          # Ham kiem tra: Kconfig KHONG BAO GIO ghi "CONFIG_X=n".
+          # =n trong file config → Kconfig ghi "# CONFIG_X is not set".
+          # Run 37097123249 fail 2 job (none, sukisu-ultra) chi vi grep sai cho nay,
+          # trong khi build chua he bien dich.
+          cfg_y() { grep -qx "$1=y" out/.config; }
+          cfg_n() { grep -qx "$1=n" out/.config \
+            || grep -qx "# $1 is not set" out/.config; }
+          # Xac nhan config chung (DroidSpaces + LTO + KPROBES)
+          for c in CONFIG_IPC_NS CONFIG_IP_SET CONFIG_IP_SET_HASH_IP \
+                   CONFIG_IP_SET_HASH_NET CONFIG_NETFILTER_XT_SET \
+                   CONFIG_NETFILTER_XT_MATCH_RECENT CONFIG_NF_CT_NETLINK \
+                   CONFIG_LTO_CLANG CONFIG_THINLTO CONFIG_KPROBES; do
+            cfg_y "$c" || { echo "FAIL: $c khong = y"; exit 1; }
+          done
+          # Xac nhan root config theo fragment
+          case "$FRAGMENT" in
+            none.config)
+              cfg_n CONFIG_KSU \
+                || { echo "FAIL: none phai tat KSU"; exit 1; } ;;
+            resukisu.config)
+              cfg_y CONFIG_KSU_MANUAL_HOOK \
+                || { echo "FAIL: resukisu can MANUAL_HOOK"; exit 1; }
+              cfg_y CONFIG_KSU_MULTI_MANAGER_SUPPORT \
+                || { echo "FAIL: thieu MultiManager"; exit 1; } ;;
+            resukisu-susfs.config)
+              cfg_y CONFIG_KSU_SUSFS \
+                || { echo "FAIL: can KSU_SUSFS"; exit 1; }
+              cfg_y CONFIG_KSU_MULTI_MANAGER_SUPPORT \
+                || { echo "FAIL: thieu MultiManager"; exit 1; } ;;
+            sukisu-ultra.config)
+              cfg_y CONFIG_KSU_MANUAL_SU \
+                || { echo "FAIL: sukisu-ultra can MANUAL_SU"; exit 1; }
+              cfg_n CONFIG_KPM \
+                || { echo "FAIL: sukisu-ultra phai tat KPM"; exit 1; } ;;
+            sukisu-ultra-kpm.config)
+              cfg_y CONFIG_KSU_MANUAL_SU \
+                || { echo "FAIL: sukisu-ultra-kpm can MANUAL_SU"; exit 1; }
+              cfg_y CONFIG_KPM \
+                || { echo "FAIL: sukisu-ultra-kpm can KPM=y"; exit 1; } ;;
+          esac
+          echo "OK: variant $VARIANT config hop le"
+
+          make -j"$MAKE_JOBS" $MAKE_ARGS $EXTRA_MAKE_ARGS Image.gz-dtb
+
+      - name: Package flashable zip
+        run: |
+          set -e
+          AK=anykernel
+          # dtbo.img: cay nay khong co target sinh san (cmd_mkdtimg o
+          # scripts/Makefile.lib:345 khong duoc target nao goi), nen goi
+          # script AOSP trong cay truc tiep. Cai nay build ca 13 .dtbo cua
+          # tat ca board trong out/, giong cach zip cua dev.
+          python3 scripts/dtc/libfdt/mkdtboimg.py create "$AK/dtbo.img" \
+            --page_size=4096 out/arch/arm64/boot/dts/qcom/*.dtbo
+          # dtb: ak3-core.sh:352 xu ly `for fdt in dt recovery_dtbo dtb`
+          # va :431 dung `magiskboot dtb $fdt patch` → dtb PHAI LA FILE,
+          # khong phai thu muc. File dat ten theo board.
+          cp out/arch/arm64/boot/dts/qcom/sm8150-v2-xiaomi.dtb "$AK/dtb"
+          cp out/arch/arm64/boot/Image "$AK/Image"
+          # DTB khong append vao Image (non-GKI) → tach rieng nhu zip cua dev.
+          test -s "$AK/Image" || { echo "FAIL: Image rong"; exit 1; }
+          test -s "$AK/dtbo.img" || { echo "FAIL: dtbo.img rong"; exit 1; }
+          # banner + README — ten variant de phan biet khi flash
+          printf '#Yomi16-%s\n' "$VARIANT" > "$AK/banner"
+          printf 'Yomi16 (%s) for POCO F5 (vayu)\nKernel: 4.14.357+17-Yomi16\nBuilt with clang-11, LLVM=1, LTO+ThinLTO\n' \
+            "$VARIANT" > "$AK/README.md"
+          # Zip: -x '.*' loai .gitkeep/DS_Store; -r giữ quyen exec cho tools
+          ZIP="Yomi16_${VARIANT}_vayu_$(date -u +%Y%m%d).zip"
+          # Ghi ra repo root: tu anykernel/ phai len MOT cap, khong phai hai.
+          # Run 37089125220 fail vi zip ghi ra cha cua repo root roi lai
+          # "cd ../.." di tim o cap cao hon → ls: cannot access.
+          (cd "$AK" && zip -r9 "../$ZIP" . -x '.*')
+          ls -la "$ZIP"
+          echo "DONE: $ZIP"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: yomi16-out
+          name: Yomi16-flashable-${{ env.VARIANT }}
+          path: Yomi16_*.zip
+
+      - uses: actions/upload-artifact@v4
+        # if: always() → van upload ca khi buoc truoc fail, de khong mat
+        # artifact kernel khi buoc dong goi zip co loi.
+        if: always()
+        with:
+          name: yomi16-out-${{ env.VARIANT }}
           # upload-artifact@v4 bo qua file dot (mac dinh include-hidden-files=false),
           # nen out/.config se bi bo qua neu khong bat co.
           include-hidden-files: true
