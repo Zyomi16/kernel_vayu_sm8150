@@ -46,13 +46,21 @@ jobs:
             arch/arm64/configs/yomi16.config
           # olddefconfig (khong phai alldefconfig) de giu nguyen config da chon
           make -j"$MAKE_JOBS" $MAKE_ARGS olddefconfig
-          # Xac nhan 7 config can co that su len .config truoc khi build
+          # CHAN DOAN: in lenh link that cua vdso de biet LD/AS co -EL gi.
+          # make -n chi in, khong bien dich. Bo khoi file khi da biet nguyen nhan.
+          echo "----- PROBE: lenh build vdso -----"
+          make -n $MAKE_ARGS KBUILD_VERBOSE=1 vdso_prepare 2>&1 \
+            | grep -E 'vdso\.so|LDS |ld\.lld|ld\.gold|-EL' | head -20 || true
+          echo "----- PROBE: het -----"
+
+          # Xac nhan 9 config can co that su len .config truoc khi build
           for c in CONFIG_IPC_NS CONFIG_IP_SET CONFIG_IP_SET_HASH_IP \
                    CONFIG_IP_SET_HASH_NET CONFIG_NETFILTER_XT_SET \
-                   CONFIG_NETFILTER_XT_MATCH_RECENT CONFIG_NF_CT_NETLINK; do
+                   CONFIG_NETFILTER_XT_MATCH_RECENT CONFIG_NF_CT_NETLINK \
+                   CONFIG_LTO_CLANG CONFIG_THINLTO; do
             grep -qx "$c=y" out/.config || { echo "FAIL: $c khong = y"; exit 1; }
           done
-          echo "OK: 7/7 config da len .config"
+          echo "OK: 9/9 config da len .config"
           make -j"$MAKE_JOBS" $MAKE_ARGS Image.gz-dtb
 
       - uses: actions/upload-artifact@v4
