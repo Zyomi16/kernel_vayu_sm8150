@@ -4,11 +4,6 @@ on:
   push:
     branches: [main, config/yomi16]
   workflow_dispatch:
-    inputs:
-      probe_only:
-        description: 'Chi chay probe (chan doan), bo qua build'
-        type: boolean
-        default: true
 
 jobs:
   build:
@@ -43,12 +38,10 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-11 lld-11 llvm-11 gcc-11-aarch64-linux-gnu bc bison flex zstd liblz4-tool
+          sudo apt-get install -y clang-11 lld-11 llvm-11 gcc-11-aarch64-linux-gnu bc bison flex zstd liblz4-tool zip
           sudo ln -sf /usr/bin/elfedit /usr/bin/aarch64-linux-gnu-elfedit
 
       - name: Build Image.gz-dtb
-        env:
-          PROBE_ONLY: ${{ inputs.probe_only }}
         run: |
           export PATH=/usr/lib/llvm-11/bin:$PATH
           clang --version | head -1
@@ -61,17 +54,6 @@ jobs:
             arch/arm64/configs/yomi16.config
           # olddefconfig (khong phai alldefconfig) de giu nguyen config da chon
           make -j"$MAKE_JOBS" $MAKE_ARGS olddefconfig
-          # CHAN DOAN: in lenh link that cua vdso de biet LD/AS co -EL gi.
-          # make -n chi in, khong bien dich. Bo khoi file khi da biet nguyen nhan.
-          # So sanh lenh link vdso: KHONG fix vs CO fix (ld-name=lld).
-          echo "===== PROBE A: khong ld-name (hien tai) ====="
-          make -n $MAKE_ARGS KBUILD_VERBOSE=1 vdso_prepare 2>&1 \
-            | grep -E "vdso\.so\.dbg.*-o|vdso\.so\.dbg" | head -3 || true
-          echo "===== PROBE B: co ld-name=lld (de xoa) ====="
-          make -n $MAKE_ARGS ld-name=lld KBUILD_VERBOSE=1 vdso_prepare 2>&1 \
-            | grep -E "vdso\.so\.dbg.*-o|vdso\.so\.dbg" | head -3 || true
-          echo "===== PROBE het ====="
-
           # Xac nhan 9 config can co that su len .config truoc khi build
           for c in CONFIG_IPC_NS CONFIG_IP_SET CONFIG_IP_SET_HASH_IP \
                    CONFIG_IP_SET_HASH_NET CONFIG_NETFILTER_XT_SET \
@@ -81,13 +63,41 @@ jobs:
           done
           echo "OK: 9/9 config da len .config"
 
-          # PROBE_ONLY=1 -> dung truoc build, chi de xac nhan lenh link.
-          # Xoa khi da xac nhan xong.
-          if [ "${PROBE_ONLY:-0}" = "1" ]; then
-            echo "PROBE_ONLY=1: bo qua build, chi de chan doan"
-            exit 0
-          fi
           make -j"$MAKE_JOBS" $MAKE_ARGS $EXTRA_MAKE_ARGS Image.gz-dtb
+
+      - name: Package flashable zip
+        run: |
+          set -e
+          AK=anykernel
+          # dtbo.img: cay nay khong co target sinh san (cmd_mkdtimg o
+          # scripts/Makefile.lib:345 khong duoc target nao goi), nen goi
+          # script AOSP trong cay truc tiep. Cai nay build ca 13 .dtbo cua
+          # tat ca board trong out/, giong cach zip cua dev.
+          python3 scripts/dtc/libfdt/mkdtboimg.py create "$AK/dtbo.img" \
+            --page_size=4096 out/arch/arm64/boot/dts/qcom/*.dtbo
+          # dtb: ak3-core.sh:352 xu ly `for fdt in dt recovery_dtbo dtb`
+          # va :431 dung `magiskboot dtb $fdt patch` → dtb PHAI LA FILE,
+          # khong phai thu muc. File dat ten theo board.
+          cp out/arch/arm64/boot/dts/qcom/sm8150-v2-xiaomi.dtb "$AK/dtb"
+          cp out/arch/arm64/boot/Image "$AK/Image"
+          # DTB khong append vao Image (non-GKI) → tach rieng nhu zip cua dev.
+          test -s "$AK/Image" || { echo "FAIL: Image rong"; exit 1; }
+          test -s "$AK/dtbo.img" || { echo "FAIL: dtbo.img rong"; exit 1; }
+          # banner + README
+          printf '#Yomi16\n' > "$AK/banner"
+          printf 'Yomi16 for POCO F5 (vayu)\nKernel: 4.14.357+17-Yomi16\nBuilt with clang-11, LLVM=1, LTO+ThinLTO\n' \
+            > "$AK/README.md"
+          # Zip: -x '.*' loai .gitkeep/DS_Store; -r giữ quyen exec cho tools
+          ZIP="Yomi16_vayu_$(date -u +%Y%m%d).zip"
+          (cd "$AK" && zip -r9 "../../$ZIP" . -x '.*')
+          cd ../..
+          ls -la "$ZIP"
+          echo "DONE: $ZIP"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Yomi16-flashable
+          path: Yomi16_vayu_*.zip
 
       - uses: actions/upload-artifact@v4
         with:
