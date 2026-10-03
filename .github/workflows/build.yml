@@ -9,6 +9,23 @@ jobs:
   build:
     runs-on: ubuntu-22.04
 
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # variant:  ten thu muc trong arch/arm64/configs/root/
+          # swap:     co can the drivers/kernelsu thay bang kernelsu-sukisu khong
+          - variant: none
+            swap: 0
+          - variant: resukisu
+            swap: 0
+          - variant: resukisu-susfs
+            swap: 0
+          - variant: sukisu
+            swap: 1
+          - variant: sukisu-kpm
+            swap: 1
+
     env:
       # LLVM=1: Makefile:391-399 picks clang/ld.lld/llvm-* instead of $(CROSS_COMPILE)gcc
       # CROSS_COMPILE drives CLANG_TRIPLE + --gcc-toolchain (Makefile:521-534)
@@ -26,9 +43,24 @@ jobs:
       # ld-name=lld lam cho nhanh ifneq that, giu LD = ld.lld.
       # Xac nhan bang run 37084024479 (probe in ra LD rong).
       EXTRA_MAKE_ARGS: ld-name=lld
+      VARIANT: ${{ matrix.variant }}
+      SWAP: ${{ matrix.swap }}
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Swap root driver
+        if: matrix.swap == '1'
+        run: |
+          # SukiSU-Ultra khac ReSukiSU ca ve Kconfig: 7 symbol vs 24,
+          # khong co KSU_MULTI_MANAGER_SUPPORT, khong co KSU_SUSFS.
+          # drivers/Makefile:198 la `obj-$(CONFIG_KSU) += kernelsu/` nen
+          # thay noi dung thu muc la doi duoc driver.
+          echo ">>> swapping ReSukiSU -> SukiSU-Ultra"
+          rm -rf drivers/kernelsu
+          cp -r drivers/kernelsu-sukisu drivers/kernelsu
+          echo "symbol co trong driver moi:"
+          grep -hoE '^config [A-Z_0-9]+' drivers/kernelsu/Kconfig | sort -u | sed 's/^/  /'
 
       - name: Free disk space
         run: |
@@ -46,22 +78,49 @@ jobs:
           export PATH=/usr/lib/llvm-11/bin:$PATH
           clang --version | head -1
           make -j"$MAKE_JOBS" $MAKE_ARGS vayu_defconfig
-          # Merge yomi16.config (DroidSpaces + LTO) VAO SAU defconfig.
+          # Merge yomi16.config + root/$VARIANT.config VAO SAU defconfig.
           # -m = chi merge, khong chay make; -O out = thu muc output.
           # Phai merge sau defconfig vi make <target>_defconfig tao lai .config
           # tu defconfig va se xoa het thay doi khong nam trong defconfig.
           scripts/kconfig/merge_config.sh -m -O out out/.config \
-            arch/arm64/configs/yomi16.config
+            arch/arm64/configs/yomi16.config \
+            "arch/arm64/configs/root/$VARIANT.config"
           # olddefconfig (khong phai alldefconfig) de giu nguyen config da chon
           make -j"$MAKE_JOBS" $MAKE_ARGS olddefconfig
-          # Xac nhan 9 config can co that su len .config truoc khi build
+          # Xac nhan config chung (DroidSpaces + LTO + KPROBES)
           for c in CONFIG_IPC_NS CONFIG_IP_SET CONFIG_IP_SET_HASH_IP \
                    CONFIG_IP_SET_HASH_NET CONFIG_NETFILTER_XT_SET \
                    CONFIG_NETFILTER_XT_MATCH_RECENT CONFIG_NF_CT_NETLINK \
-                   CONFIG_LTO_CLANG CONFIG_THINLTO; do
+                   CONFIG_LTO_CLANG CONFIG_THINLTO CONFIG_KPROBES; do
             grep -qx "$c=y" out/.config || { echo "FAIL: $c khong = y"; exit 1; }
           done
-          echo "OK: 9/9 config da len .config"
+          # Xac nhan root config theo variant
+          case "$VARIANT" in
+            none)
+              grep -qx 'CONFIG_KSU=n' out/.config \
+                || { echo "FAIL: none phai tat KSU"; exit 1; } ;;
+            resukisu)
+              grep -qx 'CONFIG_KSU_MANUAL_HOOK=y' out/.config \
+                || { echo "FAIL: resukiu can MANUAL_HOOK"; exit 1; }
+              grep -qx 'CONFIG_KSU_MULTI_MANAGER_SUPPORT=y' out/.config \
+                || { echo "FAIL: thieu MultiManager"; exit 1; } ;;
+            resukisu-susfs)
+              grep -qx 'CONFIG_KSU_SUSFS=y' out/.config \
+                || { echo "FAIL: can KSU_SUSFS"; exit 1; }
+              grep -qx 'CONFIG_KSU_MULTI_MANAGER_SUPPORT=y' out/.config \
+                || { echo "FAIL: thieu MultiManager"; exit 1; } ;;
+            sukisu)
+              grep -qx 'CONFIG_KSU_MANUAL_SU=y' out/.config \
+                || { echo "FAIL: sukisu can MANUAL_SU"; exit 1; }
+              grep -qx 'CONFIG_KPM=n' out/.config \
+                || { echo "FAIL: sukisu phai tat KPM"; exit 1; } ;;
+            sukisu-kpm)
+              grep -qx 'CONFIG_KSU_MANUAL_SU=y' out/.config \
+                || { echo "FAIL: sukisu-kpm can MANUAL_SU"; exit 1; }
+              grep -qx 'CONFIG_KPM=y' out/.config \
+                || { echo "FAIL: sukisu-kpm can KPM=y"; exit 1; } ;;
+          esac
+          echo "OK: variant $VARIANT config hop le"
 
           make -j"$MAKE_JOBS" $MAKE_ARGS $EXTRA_MAKE_ARGS Image.gz-dtb
 
@@ -83,12 +142,12 @@ jobs:
           # DTB khong append vao Image (non-GKI) → tach rieng nhu zip cua dev.
           test -s "$AK/Image" || { echo "FAIL: Image rong"; exit 1; }
           test -s "$AK/dtbo.img" || { echo "FAIL: dtbo.img rong"; exit 1; }
-          # banner + README
-          printf '#Yomi16\n' > "$AK/banner"
-          printf 'Yomi16 for POCO F5 (vayu)\nKernel: 4.14.357+17-Yomi16\nBuilt with clang-11, LLVM=1, LTO+ThinLTO\n' \
-            > "$AK/README.md"
+          # banner + README — ten variant de phan biet khi flash
+          printf '#Yomi16-%s\n' "$VARIANT" > "$AK/banner"
+          printf 'Yomi16 (%s) for POCO F5 (vayu)\nKernel: 4.14.357+17-Yomi16\nBuilt with clang-11, LLVM=1, LTO+ThinLTO\n' \
+            "$VARIANT" > "$AK/README.md"
           # Zip: -x '.*' loai .gitkeep/DS_Store; -r giữ quyen exec cho tools
-          ZIP="Yomi16_vayu_$(date -u +%Y%m%d).zip"
+          ZIP="Yomi16_${VARIANT}_vayu_$(date -u +%Y%m%d).zip"
           # Ghi ra repo root: tu anykernel/ phai len MOT cap, khong phai hai.
           # Run 37089125220 fail vi zip ghi ra cha cua repo root roi lai
           # "cd ../.." di tim o cap cao hon → ls: cannot access.
@@ -98,15 +157,15 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Yomi16-flashable
-          path: Yomi16_vayu_*.zip
+          name: Yomi16-flashable-${{ matrix.variant }}
+          path: Yomi16_*.zip
 
       - uses: actions/upload-artifact@v4
         # if: always() → van upload ca khi buoc truoc fail, de khong mat
         # artifact kernel khi buoc dong goi zip co loi.
         if: always()
         with:
-          name: yomi16-out
+          name: yomi16-out-${{ matrix.variant }}
           # upload-artifact@v4 bo qua file dot (mac dinh include-hidden-files=false),
           # nen out/.config se bi bo qua neu khong bat co.
           include-hidden-files: true
