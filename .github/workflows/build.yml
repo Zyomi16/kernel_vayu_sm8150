@@ -89,10 +89,10 @@ jobs:
             > "$AK/README.md"
           # Zip: -x '.*' loai .gitkeep/DS_Store; -r giữ quyen exec cho tools
           ZIP="Yomi16_vayu_$(date -u +%Y%m%d).zip"
-          # Ghi ra repo root: tu anykernel/ phai len 1 cap, KHONG phai 2.
-# Run 37089125220 da fail vi zip "../../$ZIP" ghi ra ngoai repo root roi
-# lai "cd ../.." di tim o cap cao hon → ls: cannot access.
-(cd "$AK" && zip -r9 "../$ZIP" . -x '.*')
+          # Ghi ra repo root: tu anykernel/ phai len MOT cap, khong phai hai.
+          # Run 37089125220 fail vi zip ghi ra cha cua repo root roi lai
+          # "cd ../.." di tim o cap cao hon → ls: cannot access.
+          (cd "$AK" && zip -r9 "../$ZIP" . -x '.*')
           ls -la "$ZIP"
           echo "DONE: $ZIP"
 
