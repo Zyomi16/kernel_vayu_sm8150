@@ -4,6 +4,11 @@ on:
   push:
     branches: [main, config/yomi16]
   workflow_dispatch:
+    inputs:
+      probe_only:
+        description: 'Chi chay probe (chan doan), bo qua build'
+        type: boolean
+        default: true
 
 jobs:
   build:
@@ -18,6 +23,14 @@ jobs:
       # nay, job se treo vo han cho runner khop label (run 37077911639 queued
       # >30 phut, runner_id=0). Muon nhieu core thi phai mua larger runner.
       MAKE_JOBS: 2
+      # ld-name=lld: Makefile:707 kiem tra `ifneq ($(ld-name),lld)` de BO QUA
+      # vie gan LD := $(LDGOLD). Cay nay khong gan ld-name o dau (grep: 0 cho),
+      # nen ifneq luon dung → LD := $(LDGOLD). Ma voi LLVM=1 thi LDGOLD
+      # RONG (Makefile:391-399 khong dinh nghia LDGOLD) → LD rong, rồi
+      # arch/arm64/Makefile:103 cong them -EL → lenh link bi "-EL -plugin ...".
+      # ld-name=lld lam cho nhanh ifneq that, giu LD = ld.lld.
+      # Xac nhan bang run 37084024479 (probe in ra LD rong).
+      EXTRA_MAKE_ARGS: ld-name=lld
 
     steps:
       - uses: actions/checkout@v4
@@ -34,6 +47,8 @@ jobs:
           sudo ln -sf /usr/bin/elfedit /usr/bin/aarch64-linux-gnu-elfedit
 
       - name: Build Image.gz-dtb
+        env:
+          PROBE_ONLY: ${{ inputs.probe_only }}
         run: |
           export PATH=/usr/lib/llvm-11/bin:$PATH
           clang --version | head -1
@@ -48,10 +63,14 @@ jobs:
           make -j"$MAKE_JOBS" $MAKE_ARGS olddefconfig
           # CHAN DOAN: in lenh link that cua vdso de biet LD/AS co -EL gi.
           # make -n chi in, khong bien dich. Bo khoi file khi da biet nguyen nhan.
-          echo "----- PROBE: lenh build vdso -----"
+          # So sanh lenh link vdso: KHONG fix vs CO fix (ld-name=lld).
+          echo "===== PROBE A: khong ld-name (hien tai) ====="
           make -n $MAKE_ARGS KBUILD_VERBOSE=1 vdso_prepare 2>&1 \
-            | grep -E 'vdso\.so|LDS |ld\.lld|ld\.gold|-EL' | head -20 || true
-          echo "----- PROBE: het -----"
+            | grep -E "vdso\.so\.dbg.*-o|vdso\.so\.dbg" | head -3 || true
+          echo "===== PROBE B: co ld-name=lld (de xoa) ====="
+          make -n $MAKE_ARGS ld-name=lld KBUILD_VERBOSE=1 vdso_prepare 2>&1 \
+            | grep -E "vdso\.so\.dbg.*-o|vdso\.so\.dbg" | head -3 || true
+          echo "===== PROBE het ====="
 
           # Xac nhan 9 config can co that su len .config truoc khi build
           for c in CONFIG_IPC_NS CONFIG_IP_SET CONFIG_IP_SET_HASH_IP \
@@ -61,7 +80,14 @@ jobs:
             grep -qx "$c=y" out/.config || { echo "FAIL: $c khong = y"; exit 1; }
           done
           echo "OK: 9/9 config da len .config"
-          make -j"$MAKE_JOBS" $MAKE_ARGS Image.gz-dtb
+
+          # PROBE_ONLY=1 -> dung truoc build, chi de xac nhan lenh link.
+          # Xoa khi da xac nhan xong.
+          if [ "${PROBE_ONLY:-0}" = "1" ]; then
+            echo "PROBE_ONLY=1: bo qua build, chi de chan doan"
+            exit 0
+          fi
+          make -j"$MAKE_JOBS" $MAKE_ARGS $EXTRA_MAKE_ARGS Image.gz-dtb
 
       - uses: actions/upload-artifact@v4
         with:
