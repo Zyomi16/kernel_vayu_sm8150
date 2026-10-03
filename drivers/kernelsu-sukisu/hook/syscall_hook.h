@@ -4,6 +4,11 @@
 
 #if defined(__x86_64__)
 typedef sys_call_ptr_t syscall_fn_t;
+#elif defined(__aarch64__)
+// arm64 4.14 khong co sys_call_ptr_t (chi x86 co). Entry cua sys_call_table
+// la void *, handler nhan struct pt_regs *. Thieu nhanh nay la loi build
+// cua moi variant sukisu: "error: unknown type name 'syscall_fn_t'".
+typedef long (*syscall_fn_t)(const struct pt_regs *);
 #endif
 
 extern syscall_fn_t *ksu_syscall_table;

@@ -185,10 +185,15 @@ jobs:
           make -j"$MAKE_JOBS" $MAKE_ARGS vayu_defconfig
           # Merge: defconfig -> yomi16.config -> root fragment -> matrix extra.
           # -m = chi merge; olddefconfig giu nguyen lua chon.
+          # $M_EXTRA chua ten file ngan (m/lto-off.config) → prefix thanh
+          # duong dan day du. De tran nhu "m/x" thi merge_config.sh bao
+          # "does not exist" (run 37108943823 fail ca 14 job nolto/os).
           # shellcheck disable=SC2086
+          EXTRA_PATHS=""
+          for f in $M_EXTRA; do EXTRA_PATHS="$EXTRA_PATHS arch/arm64/configs/$f"; done
           scripts/kconfig/merge_config.sh -m -O out out/.config \
             arch/arm64/configs/yomi16.config \
-            "arch/arm64/configs/root/$M_FRAG" $M_EXTRA
+            "arch/arm64/configs/root/$M_FRAG" $EXTRA_PATHS
           make -j"$MAKE_JOBS" $MAKE_ARGS olddefconfig
           cfg_y() { grep -qx "$1=y" out/.config; }
           cfg_n() { grep -qx "$1=n" out/.config \
