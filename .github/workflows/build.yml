@@ -12,13 +12,13 @@ on:
         options:
           - none
           - resukisu
-          - sukisu
+          - sukisu-ultra
       susfs:
         description: 'Bat SUSFS? (chi co tac dung voi resukisu)'
         type: boolean
         default: false
       kpm:
-        description: 'Bat KPM? (chi co tac dung voi sukisu)'
+        description: 'Bat KPM? (chi co tac dung voi sukisu-ultra)'
         type: boolean
         default: false
 
@@ -70,10 +70,10 @@ jobs:
               SWAP=0
               # KPM la cua SukiSU-Ultra, ReSukiSU khong co symbol KPM.
               if [ "$KPM" = "true" ]; then
-                echo "FAIL: kpm=true chi dung voi root=sukisu"; exit 1; fi ;;
-            sukisu)
-              if [ "$KPM" = "true" ]; then FRAGMENT=sukisu-kpm.config;
-              else FRAGMENT=sukisu.config; fi
+                echo "FAIL: kpm=true chi dung voi root=sukisu-ultra"; exit 1; fi ;;
+            sukisu-ultra)
+              if [ "$KPM" = "true" ]; then FRAGMENT=sukisu-ultra-kpm.config;
+              else FRAGMENT=sukisu-ultra.config; fi
               SWAP=1
               # SukiSU Kconfig khong co KSU_SUSFS.
               if [ "$SUSFS" = "true" ]; then
@@ -126,7 +126,7 @@ jobs:
           make -j"$MAKE_JOBS" $MAKE_ARGS olddefconfig
           # Ham kiem tra: Kconfig KHONG BAO GIO ghi "CONFIG_X=n".
           # =n trong file config → Kconfig ghi "# CONFIG_X is not set".
-          # Run 37097123249 fail 2 job (none, sukisu) chi vi grep sai cho nay,
+          # Run 37097123249 fail 2 job (none, sukisu-ultra) chi vi grep sai cho nay,
           # trong khi build chua he bien dich.
           cfg_y() { grep -qx "$1=y" out/.config; }
           cfg_n() { grep -qx "$1=n" out/.config \
@@ -153,16 +153,16 @@ jobs:
                 || { echo "FAIL: can KSU_SUSFS"; exit 1; }
               cfg_y CONFIG_KSU_MULTI_MANAGER_SUPPORT \
                 || { echo "FAIL: thieu MultiManager"; exit 1; } ;;
-            sukisu.config)
+            sukisu-ultra.config)
               cfg_y CONFIG_KSU_MANUAL_SU \
-                || { echo "FAIL: sukisu can MANUAL_SU"; exit 1; }
+                || { echo "FAIL: sukisu-ultra can MANUAL_SU"; exit 1; }
               cfg_n CONFIG_KPM \
-                || { echo "FAIL: sukisu phai tat KPM"; exit 1; } ;;
-            sukisu-kpm.config)
+                || { echo "FAIL: sukisu-ultra phai tat KPM"; exit 1; } ;;
+            sukisu-ultra-kpm.config)
               cfg_y CONFIG_KSU_MANUAL_SU \
-                || { echo "FAIL: sukisu-kpm can MANUAL_SU"; exit 1; }
+                || { echo "FAIL: sukisu-ultra-kpm can MANUAL_SU"; exit 1; }
               cfg_y CONFIG_KPM \
-                || { echo "FAIL: sukisu-kpm can KPM=y"; exit 1; } ;;
+                || { echo "FAIL: sukisu-ultra-kpm can KPM=y"; exit 1; } ;;
           esac
           echo "OK: variant $VARIANT config hop le"
 
