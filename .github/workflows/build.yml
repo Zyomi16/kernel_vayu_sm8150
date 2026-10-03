@@ -4,27 +4,48 @@ on:
   push:
     branches: [main, config/yomi16]
   workflow_dispatch:
+    inputs:
+      variant:
+        description: 'Bien build can chay (mac dinh: ca 5)'
+        type: choice
+        default: all
+        options:
+          - all
+          - none
+          - resukisu
+          - resukisu-susfs
+          - sukisu
+          - sukisu-kpm
 
 jobs:
+  # Job nay chi tinh ma tran, khong build. GitHub Actions khong cho matrix
+  # doc truc tiep tu inputs, nen phai qua mot job trung gian.
+  setup:
+    runs-on: ubuntu-22.04
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+    steps:
+      - id: gen
+        run: |
+          ALL='[{"variant":"none","swap":0},{"variant":"resukisu","swap":0},{"variant":"resukisu-susfs","swap":0},{"variant":"sukisu","swap":1},{"variant":"sukisu-kpm","swap":1}]'
+          WANT='${{ inputs.variant }}'
+          if [ -z "$WANT" ] || [ "$WANT" = "all" ]; then
+            echo ">> build ca 5 bien"
+            echo "matrix=$ALL" >> "$GITHUB_OUTPUT"
+          else
+            echo ">> chi build: $WANT"
+            echo "matrix=$ALL" | jq -c --arg v "$WANT" 'map(select(.variant==$v))' \
+              >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: setup
     runs-on: ubuntu-22.04
 
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # variant:  ten thu muc trong arch/arm64/configs/root/
-          # swap:     co can the drivers/kernelsu thay bang kernelsu-sukisu khong
-          - variant: none
-            swap: 0
-          - variant: resukisu
-            swap: 0
-          - variant: resukisu-susfs
-            swap: 0
-          - variant: sukisu
-            swap: 1
-          - variant: sukisu-kpm
-            swap: 1
+        include: ${{ fromJSON(needs.setup.outputs.matrix) }}
 
     env:
       # LLVM=1: Makefile:391-399 picks clang/ld.lld/llvm-* instead of $(CROSS_COMPILE)gcc
